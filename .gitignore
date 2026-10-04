@@ -2,8 +2,6 @@ node_modules/
 coverage/
 *.log
 .DS_Store
-.env
-.env.*
 !.env.example
 
 # Local scratch / issue drafts
@@ -11,3 +9,7 @@ push_issues.sh
 issues.md
 issues*.md
 issues.d/
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+config.bat
