@@ -28,6 +28,14 @@ import {
   STELLAR_MIN_ACCOUNT_BALANCE_XLM,
 } from '../src/checks';
 import { HorizonAccount } from '../src/horizon';
+import { formatCommentBody, CommentConfig } from '../src/comment';
+import {
+  buildSarifOutput,
+  unauthorizedTrustlineSarifSeverity,
+  TRUSTLINE_RULE_ID,
+  UNAUTHORIZED_TRUSTLINE_RULE_ID,
+} from '../src/sarif';
+import { parseUnauthorizedTrustlinePolicy } from '../src/inputs';
 
 const USDC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const TEST_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
@@ -1352,7 +1360,7 @@ describe('Issue #248: unauthorized trustlines', () => {
     expect(result.checks[1].detail).not.toMatch(/not authorized/i);
   });
 
-  it('policy=fail: unauthorized trustline sets reasonCode=TRUSTLINE_MISSING', async () => {
+  it('policy=fail: unauthorized trustline sets reasonCode=TRUSTLINE_UNAUTHORIZED', async () => {
     const account = makeAccount({
       balances: [
         { balance: '10.0000000', asset_type: 'native', buying_liabilities: '0.0000000', selling_liabilities: '0.0000000' },
@@ -1364,7 +1372,10 @@ describe('Issue #248: unauthorized trustlines', () => {
     });
     const result = await runAccountChecks(account, { ...defaultConfig, unauthorizedTrustlinePolicy: 'fail' });
 
-    expect(result.reasonCode).toBe('TRUSTLINE_MISSING');
+    // Issue #729: the trustline exists on-chain, so reporting
+    // TRUSTLINE_MISSING sent triage to "add a trustline" instead of "ask the
+    // issuer to authorize it".
+    expect(result.reasonCode).toBe('TRUSTLINE_UNAUTHORIZED');
   });
 
   it('policy=warn: unauthorized trustline with auth_revocable issuer mentions revocation', async () => {
@@ -1421,6 +1432,226 @@ describe('Issue #248: unauthorized trustlines', () => {
     expect(result.clawbackEnabled).toBe(true);
     expect(result.checks[1].passed).toBe(true);
     expect(result.checks[1].detail).toMatch(/clawback is enabled/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #729 — unauthorized_trustline_policy: warn vs fail comment wording
+//
+// Triage teams rely on the *wording* of the comment to tell a blocking policy
+// failure apart from an informational warning, so these tests lock the exact
+// headings, glyphs, remediation link and `reason_code` for both policies in
+// the default (`en`) locale.
+// ---------------------------------------------------------------------------
+
+describe('Issue #729: unauthorized_trustline_policy warn vs fail', () => {
+  const unauthorizedAccount = () =>
+    makeAccount({
+      balances: [
+        {
+          balance: '10.0000000', asset_type: 'native',
+          buying_liabilities: '0.0000000', selling_liabilities: '0.0000000',
+        },
+        {
+          balance: '100.0000000', asset_type: 'credit_alphanum4', asset_code: 'USDC',
+          asset_issuer: USDC_ISSUER,
+          buying_liabilities: '0.0000000', selling_liabilities: '0.0000000',
+          is_authorized: false,
+        },
+      ],
+      flags: { auth_required: true },
+    });
+
+  const commentConfig = (
+    overrides: Partial<CommentConfig> = {},
+  ): CommentConfig => ({
+    ...defaultConfig,
+    stellarAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+    horizonUrl: 'https://horizon.stellar.org',
+    onboardingChecklist: false,
+    ...overrides,
+  } as CommentConfig);
+
+  describe('warn mode (default)', () => {
+    it('does not fail the run and reports reason_code SUCCESS', async () => {
+      const result = await runAccountChecks(unauthorizedAccount(), defaultConfig);
+
+      expect(result.valid).toBe(true);
+      expect(result.reasonCode).toBe('SUCCESS');
+      expect(result.trustlineAuthorized).toBe(false);
+      // The effective policy is echoed so renderers never re-derive it.
+      expect(result.unauthorizedTrustlinePolicy).toBe('warn');
+    });
+
+    it('renders the ⚠️ warning heading without a fail verdict', async () => {
+      const result = await runAccountChecks(unauthorizedAccount(), defaultConfig);
+      const md = formatCommentBody(result, commentConfig());
+
+      expect(md).toContain('> ⚠️ **Issuer authorization required**');
+      expect(md).toContain('does **not** fail the run');
+      expect(md).toContain('`unauthorized_trustline_policy: warn`');
+      expect(md).not.toContain('🚫');
+      expect(md).not.toContain('TRUSTLINE_UNAUTHORIZED');
+      // The trustline bullet still reads as a pass — warn never blocks.
+      expect(md).toContain('- ✅ **USDC trustline**');
+    });
+  });
+
+  describe('fail mode', () => {
+    it('fails the run with reason_code TRUSTLINE_UNAUTHORIZED', async () => {
+      const result = await runAccountChecks(unauthorizedAccount(), {
+        ...defaultConfig,
+        unauthorizedTrustlinePolicy: 'fail',
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.reasonCode).toBe('TRUSTLINE_UNAUTHORIZED');
+      expect(result.unauthorizedTrustlinePolicy).toBe('fail');
+      // The remediation must point at the issuer, not at adding a trustline.
+      expect(result.remediation).toMatch(/SetTrustLineFlags/i);
+      expect(result.remediation).not.toMatch(/Add a \*\*USDC\*\* trustline/i);
+    });
+
+    it('renders the 🚫 blocking heading and the matching reason code', async () => {
+      const result = await runAccountChecks(unauthorizedAccount(), {
+        ...defaultConfig,
+        unauthorizedTrustlinePolicy: 'fail',
+      });
+      const md = formatCommentBody(result, commentConfig());
+
+      expect(md).toContain('> 🚫 **Issuer authorization required**');
+      expect(md).toContain('`unauthorized_trustline_policy: fail`');
+      expect(md).toContain('Reason code: `TRUSTLINE_UNAUTHORIZED`');
+      expect(md).not.toContain('⚠️ **Issuer authorization required**');
+    });
+
+    it('links to the issuer-authorization remediation (FAQ anchor)', async () => {
+      const result = await runAccountChecks(unauthorizedAccount(), {
+        ...defaultConfig,
+        unauthorizedTrustlinePolicy: 'fail',
+      });
+      const md = formatCommentBody(result, commentConfig());
+
+      const faqLinks = md
+        .split('\n')
+        .filter((line) => line.includes('[→ FAQ]'));
+      expect(faqLinks.length).toBeGreaterThan(0);
+      expect(faqLinks.every((line) => line.includes('trustline-missing'))).toBe(true);
+      // The remediation text itself names the SetTrustLineFlags operation.
+      expect(md).toContain('SetTrustLineFlags');
+    });
+  });
+
+  describe('ignore mode', () => {
+    it('renders no authorization banner at all', async () => {
+      const result = await runAccountChecks(unauthorizedAccount(), {
+        ...defaultConfig,
+        unauthorizedTrustlinePolicy: 'ignore',
+      });
+      const md = formatCommentBody(result, commentConfig());
+
+      expect(result.valid).toBe(true);
+      expect(md).not.toContain('Issuer authorization required');
+      expect(md).not.toContain('AUTHORIZATION_REQUIRED');
+    });
+  });
+
+  describe('authorized trustline', () => {
+    it('never renders the banner when the issuer already authorized it', async () => {
+      const account = makeAccount({
+        balances: [
+          {
+            balance: '10.0000000', asset_type: 'native',
+            buying_liabilities: '0.0000000', selling_liabilities: '0.0000000',
+          },
+          {
+            balance: '100.0000000', asset_type: 'credit_alphanum4', asset_code: 'USDC',
+            asset_issuer: USDC_ISSUER,
+            buying_liabilities: '0.0000000', selling_liabilities: '0.0000000',
+            is_authorized: true,
+          },
+        ],
+      });
+      const result = await runAccountChecks(account, {
+        ...defaultConfig,
+        unauthorizedTrustlinePolicy: 'fail',
+      });
+      const md = formatCommentBody(result, commentConfig());
+
+      expect(result.valid).toBe(true);
+      expect(md).not.toContain('Issuer authorization required');
+    });
+  });
+
+  describe('SARIF severity follows the policy', () => {
+    it('warn mode keeps the trustline finding at note severity', async () => {
+      const result = await runAccountChecks(unauthorizedAccount(), defaultConfig);
+      const sarif = buildSarifOutput(
+        result,
+        'USDC',
+        'https://horizon.stellar.org',
+        'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      );
+      const trustline = (sarif.runs[0] as any).results.find(
+        (r: any) => r.properties.checkLabel.includes('trustline'),
+      );
+
+      expect(trustline.level).toBe('note');
+      expect(trustline.ruleId).toBe(TRUSTLINE_RULE_ID);
+    });
+
+    it('fail mode promotes the finding to an error under TB006', async () => {
+      const result = await runAccountChecks(unauthorizedAccount(), {
+        ...defaultConfig,
+        unauthorizedTrustlinePolicy: 'fail',
+      });
+      const sarif = buildSarifOutput(
+        result,
+        'USDC',
+        'https://horizon.stellar.org',
+        'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      );
+      const trustline = (sarif.runs[0] as any).results.find(
+        (r: any) => r.properties.checkLabel.includes('trustline'),
+      );
+
+      expect(trustline.level).toBe('error');
+      expect(trustline.ruleId).toBe(UNAUTHORIZED_TRUSTLINE_RULE_ID);
+      // The dedicated rule must be declared in the tool driver.
+      const rules = (sarif.runs[0] as any).tool.driver.rules.map((r: any) => r.id);
+      expect(rules).toContain(UNAUTHORIZED_TRUSTLINE_RULE_ID);
+    });
+
+    it('ignore mode omits the authorization severity entirely', () => {
+      expect(
+        unauthorizedTrustlineSarifSeverity({
+          trustlineAuthorized: false,
+          unauthorizedTrustlinePolicy: 'ignore',
+        }),
+      ).toBeUndefined();
+      expect(
+        unauthorizedTrustlineSarifSeverity({
+          trustlineAuthorized: true,
+          unauthorizedTrustlinePolicy: 'fail',
+        }),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('input parsing defaults', () => {
+    it('defaults to warn for empty, whitespace and mixed-case input', () => {
+      expect(parseUnauthorizedTrustlinePolicy('')).toBe('warn');
+      expect(parseUnauthorizedTrustlinePolicy('   ')).toBe('warn');
+      expect(parseUnauthorizedTrustlinePolicy(' WARN ')).toBe('warn');
+      expect(parseUnauthorizedTrustlinePolicy('Fail')).toBe('fail');
+      expect(parseUnauthorizedTrustlinePolicy('ignore')).toBe('ignore');
+    });
+
+    it('rejects an unknown policy with an actionable message', () => {
+      expect(() => parseUnauthorizedTrustlinePolicy('block')).toThrow(
+        /unauthorized_trustline_policy must be one of "fail", "warn", or "ignore"/,
+      );
+    });
   });
 });
 
