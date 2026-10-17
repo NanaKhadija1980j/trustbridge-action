@@ -9,6 +9,8 @@
   "scripts": {
     "build": "tsc --noEmit && ncc build src/index.ts -o dist --source-map --license licenses.txt && node scripts/normalize-maps.js && node scripts/generate-dist-manifest.js",
     "verify:dist": "node scripts/verify-dist-manifest.js",
+    "reason-codes:doc": "node scripts/generate-reason-codes-doc.js",
+    "reason-codes:check": "node scripts/generate-reason-codes-doc.js --check",
     "preview-comment": "ts-node --transpile-only scripts/preview-comment.ts",
     "test:map-paths": "node scripts/check-map-paths.js",
     "bundle-size": "npm test -- --testPathPattern bundle-size --no-coverage",

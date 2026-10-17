@@ -28,5 +28,8 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit || true
 
+      - name: reason_code docs in sync with catalog
+        run: npm run reason-codes:check
+
       - name: Test
         run: npx jest --maxWorkers=1 --no-coverage --forceExit || true

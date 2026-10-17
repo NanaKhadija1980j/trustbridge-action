@@ -37,7 +37,57 @@ CI also runs these gates:
 - `dist-drift`: typechecks tests, builds the distribution, checks source maps, and fails if the build changes committed files in `dist/`.
 - `bundle-size`: runs `npm run test:bundle-size`.
 - `verify-dist-manifest`: runs `node scripts/verify-dist-manifest.js`.
+- `reason_code docs in sync with catalog`: runs `npm run reason-codes:check` and fails when the generated table in `docs/USAGE.md` drifts from `schemas/reason-codes.json`. Fix with `npm run reason-codes:doc`.
 - `check-unpinned-actions`: runs `bash scripts/check-unpinned-actions.sh .github/workflows docs/examples`.
+
+## Reason code catalog and generated docs
+
+[`schemas/reason-codes.json`](schemas/reason-codes.json) is the single source of truth for every `reason_code` the action emits. It is a **public API surface** — dashboards and workflow gates switch on these strings — so renames and removals are BREAKING CHANGES requiring a MAJOR version bump. Adding a code is additive and safe in a minor/patch release.
+
+The operator-facing table in [`docs/USAGE.md`](docs/USAGE.md#reason_code-reference-issue-297) is **generated** from the catalog, between these sentinel comments:
+
+```markdown
+<!-- BEGIN GENERATED: reason-codes (source: schemas/reason-codes.json) -->
+<!-- END GENERATED: reason-codes -->
+```
+
+### Adding or changing a reason code
+
+1. Add the entry to `schemas/reason-codes.json` (`code`, `description`, `accountFunded`, `trustlineExists`, `xlmReserveMet`, `valid`, `emittedBy`, `since`). Set `deprecated: true` when retiring a code — it is then rendered with strikethrough instead of being deleted.
+2. Regenerate the docs table:
+
+   ```bash
+   npm run reason-codes:doc
+   ```
+
+3. Verify there is no drift (this is what CI runs):
+
+   ```bash
+   npm run reason-codes:check
+   ```
+
+4. Extend `KNOWN_REASON_CODES` in `__tests__/reason-codes.test.ts` when introducing a new code so the rename lock covers it.
+
+### Rules for the generated region
+
+- **Never hand-edit** between the sentinel comments — the next `npm run reason-codes:doc` run overwrites it and the `reason-codes:check` CI step fails on drift.
+- Column order is fixed (`reason_code`, `valid`, `account_funded`, `trustline_exists`, `xlm_reserve_met`, `Description`) so a regeneration produces a minimal diff.
+- Prose *outside* the sentinels is preserved verbatim; put any narrative explanation there.
+- `|` characters in a description are escaped so they cannot break the Markdown table.
+
+### Running it in a pre-commit hook
+
+`npm run reason-codes:check` exits non-zero on drift and writes nothing, so it is safe to run from a hook or a CI step:
+
+```json
+{
+  "scripts": {
+    "pre-commit": "npm run reason-codes:check"
+  }
+}
+```
+
+The script uses only Node built-ins, so it runs on Node 20+ with no install step.
 
 ## Mutation Testing
 
