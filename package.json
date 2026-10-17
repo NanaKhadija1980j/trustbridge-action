@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc --noEmit && ncc build src/index.ts -o dist --source-map --license licenses.txt && node scripts/normalize-maps.js && node scripts/generate-dist-manifest.js",
+    "build": "node api.js && tsc --noEmit && ncc build src/index.ts -o dist --source-map --license licenses.txt && node scripts/normalize-maps.js && node scripts/generate-dist-manifest.js",
     "verify:dist": "node scripts/verify-dist-manifest.js",
     "reason-codes:doc": "node scripts/generate-reason-codes-doc.js",
     "reason-codes:check": "node scripts/generate-reason-codes-doc.js --check",
@@ -49,6 +49,7 @@
     "node-fetch": "^2.7.0"
   },
   "devDependencies": {
+    "ajv": "^8.17.1",
     "@stryker-mutator/core": "^8.7.1",
     "@stryker-mutator/jest-runner": "^8.7.1",
     "@stryker-mutator/typescript-checker": "^8.7.1",
