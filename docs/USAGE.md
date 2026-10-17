@@ -1722,8 +1722,36 @@ This C-address support is intentionally narrow: it verifies that a contract dest
 
 ---
 
-## Address resolution precedence (Issue #219)
+## Soroban SAC (contract) asset issuers — Issue #730
 
+An asset issued by a Stellar Asset Contract has a **C-address issuer**, not a
+G-account. A Horizon account's `balances` array only ever names G-account
+issuers, so a SAC balance can be neither confirmed nor denied through the
+classic trustline path. TrustBridge therefore classifies the issuer before the
+trustline check runs.
+
+| Issuer | Classification | Trustline check | `reason_code` |
+| --- | --- | --- | --- |
+| `GA…` G-account | `classic` | classic trustline validation | `TRUSTLINE_MISSING` |
+| `CA…` SAC contract | `soroban-contract` | cannot confirm — says so explicitly and points at the Stellar Lab contract page / Soroban RPC `getContractData` | `SAC_ISSUER_NOT_VERIFIABLE` |
+
+Notes:
+
+- A C-address is a **valid** `asset_issuer`; it is never rejected as a malformed G-address. The failure is always about the unverifiable balance, never about parsing the issuer.
+- The verdict stays conservative (fail-closed): TrustBridge does not mark a SAC asset ready on the strength of an unverified balance. Use `fail_on_missing: false` plus the reason code if a warning is acceptable in your workflow.
+- `ValidationResult.assetIssuerKind` (`classic` / `soroban-contract`) lets mixed classic/Soroban batches label each row's issuer type.
+- `fetchSacContractMetadata()` in `src/soroban.ts` reads the SAC `name()` / `symbol()` / `decimals()` reporting fields from `GET {horizon_url}/contracts/{contract_id}`, and `verifySacIssuerAssetCode()` compares `symbol()` against `asset_code`. A **mismatch is a real misconfiguration** and fails the asset-code check; an **absent** reporting field is inconclusive and never fails.
+- C-addresses are redacted in every log line exactly like G-addresses (`CA AA...` → `CAAA...D2KM`), including the `contractId`, `contract_id`, `sacContractId` and `issuerContractId` context keys.
+
+### Limitations
+
+- Older testnet nodes do not expose `/contracts/{id}` and answer `404`. TrustBridge treats that as "reporting fields unavailable" — `exists: false`, `symbolVerified: false` — instead of failing the run, so a stale node cannot break a batch.
+- Offline mode (no `horizon_url`) skips the live contract fetch entirely and reports `source: 'skipped'`.
+- TrustBridge does not read a SAC balance entry. Verifying the balance remains a Soroban RPC (`getContractData`) or Stellar Lab job.
+
+---
+
+## Address resolution precedence (Issue #219)
 TrustBridge resolves the Stellar G-address to validate using the following precedence order. The **first** source that yields a non-empty address wins; all later sources are skipped.
 
 | Priority    | Source                        | When used                                                                                        | Conflict handling                                                                            |

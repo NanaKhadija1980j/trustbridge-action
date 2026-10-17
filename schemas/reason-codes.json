@@ -114,6 +114,16 @@
       "valid": true,
       "emittedBy": "src/index.ts",
       "since": "v1"
+    },
+    {
+      "code": "SAC_ISSUER_NOT_VERIFIABLE",
+      "description": "The asset is issued by a Soroban Stellar Asset Contract (C-address). SAC balances are never exposed as classic Horizon trustlines, so the balance cannot be confirmed or denied by this check. Verify the balance on the Stellar Lab contract page or via Soroban RPC `getContractData`.",
+      "accountFunded": true,
+      "trustlineExists": false,
+      "xlmReserveMet": true,
+      "valid": false,
+      "emittedBy": "src/checks.ts (runAccountChecks, when asset_issuer is a C-address)",
+      "since": "v1"
     }
   ]
 }

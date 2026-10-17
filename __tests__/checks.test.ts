@@ -1535,3 +1535,89 @@ describe('Issue #250: Muxed address support', () => {
     expect(() => validateStellarAddress(M_ADDRESS)).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #730 — Soroban SAC (C-address) asset issuer in the trustline branch
+//
+// A SAC balance never appears in a Horizon account's `balances` array, so the
+// trustline check must say "this is a contract issuer, verify it on the RPC"
+// instead of accusing the contributor of not having added a trustline they
+// cannot add. The verdict stays conservative (fail-closed) — only the wording,
+// the reason_code and the issuer-kind marker change.
+// ---------------------------------------------------------------------------
+
+describe('Issue #730: SAC (C-address) asset issuer trustline validation', () => {
+  const SAC_ISSUER = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM';
+
+  function accountWithClassicTrustline() {
+    return {
+      id: TEST_ADDRESS,
+      account_id: TEST_ADDRESS,
+      sequence: '1',
+      subentry_count: 1,
+      num_sponsoring: 0,
+      num_sponsored: 0,
+      balances: [
+        {
+          balance: '10.0000000', asset_type: 'native',
+          buying_liabilities: '0.0000000', selling_liabilities: '0.0000000',
+        },
+      ],
+      flags: { auth_required: false, auth_revocable: false, auth_immutable: false },
+      thresholds: { low_threshold: 0, med_threshold: 0, high_threshold: 0 },
+    } as any;
+  }
+
+  it('marks the issuer kind as soroban-contract', async () => {
+    const result = await runAccountChecks(accountWithClassicTrustline(), {
+      ...defaultConfig,
+      assetIssuer: SAC_ISSUER,
+    });
+    expect(result.assetIssuerKind).toBe('soroban-contract');
+  });
+
+  it('labels a G-address issuer as classic', async () => {
+    const result = await runAccountChecks(accountWithClassicTrustline(), defaultConfig);
+    expect(result.assetIssuerKind).toBe('classic');
+  });
+
+  it('explains the contract issuer instead of telling the user to add a trustline', async () => {
+    const result = await runAccountChecks(accountWithClassicTrustline(), {
+      ...defaultConfig,
+      assetIssuer: SAC_ISSUER,
+    });
+    const detail = result.checks[1].detail;
+
+    expect(detail).toContain('Soroban SAC contract');
+    expect(detail).toContain(SAC_ISSUER);
+    expect(detail).toMatch(/not.*exposed as classic Horizon trustlines/i);
+    expect(detail).toMatch(/Stellar Lab contract page/);
+    expect(detail).not.toMatch(/add a trustline/i);
+  });
+
+  it('emits SAC_ISSUER_NOT_VERIFIABLE rather than TRUSTLINE_MISSING', async () => {
+    const result = await runAccountChecks(accountWithClassicTrustline(), {
+      ...defaultConfig,
+      assetIssuer: SAC_ISSUER,
+    });
+
+    expect(result.reasonCode).toBe('SAC_ISSUER_NOT_VERIFIABLE');
+    expect(result.valid).toBe(false);
+  });
+
+  it('does not reject the C-address issuer as an invalid asset issuer', async () => {
+    // A C-address is a valid asset_issuer (assertValidAssetIssuer accepts it);
+    // the failure must come from the unverifiable balance, not from parsing.
+    const result = await runAccountChecks(accountWithClassicTrustline(), {
+      ...defaultConfig,
+      assetIssuer: SAC_ISSUER,
+    });
+    expect(result.checks[1].detail).not.toMatch(/invalid/i);
+  });
+
+  it('keeps the classic wording unchanged for G-address issuers', async () => {
+    const result = await runAccountChecks(accountWithClassicTrustline(), defaultConfig);
+    expect(result.checks[1].detail).toMatch(/zero trustlines/i);
+    expect(result.reasonCode).toBe('TRUSTLINE_MISSING');
+  });
+});
