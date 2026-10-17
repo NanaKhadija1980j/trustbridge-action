@@ -220,13 +220,37 @@ export function formatCommentBody(
       );
     }
 
+    // Issuer-authorization banner (Issue #729 — unauthorized_trustline_policy).
+    // The trustline check passes in `warn` mode, so without an explicit
+    // banner the only signal is a sentence buried inside a ✅ bullet — triage
+    // cannot tell an informational warning apart from a blocking policy
+    // failure. Warn mode therefore uses a ⚠️ heading and states explicitly
+    // that the run is NOT failed; `fail` mode uses a 🚫 heading and surfaces
+    // the matching `reason_code`. `ignore` renders nothing, matching the
+    // "no additional check or warning" contract of the policy.
+    const unauthorizedPolicy = result.unauthorizedTrustlinePolicy ?? 'warn';
+    if (result.trustlineAuthorized === false && unauthorizedPolicy !== 'ignore') {
+      const blocking = unauthorizedPolicy === 'fail';
+      const authFaqUrl = buildFaqLinkForCheck(
+        `${config.assetCode} trustline`,
+        config.docsBaseUrl,
+      );
+      lines.push(
+        "",
+        `> ${blocking ? '🚫' : '⚠️'} **${escapeMarkdownInline(strings.unauthorizedTrustlineHeading)}**`,
+        `> - ${blocking ? strings.unauthorizedTrustlineFail : strings.unauthorizedTrustlineWarn}`,
+        `> - ${blocking ? strings.unauthorizedTrustlineFailNote : strings.unauthorizedTrustlineWarnNote}`,
+        `> - ${strings.reasonCode} ${inlineCode(blocking ? 'TRUSTLINE_UNAUTHORIZED' : 'SUCCESS')}`,
+        authFaqUrl ? `> - [→ FAQ](${authFaqUrl})` : "",
+      );
+    }
+
     // Circuit breaker banner (Issue #434) — a run that fast-failed because the
     // Horizon circuit was open must say so, otherwise the Results list looks
     // like a plain account failure and triage chases the wrong root cause.
     // Rendered immediately after Results so it is the first thing a maintainer
     // reads. Contains no account data, addresses, or balances.
-    if (result.circuitOpen) {
-      lines.push(
+    if (result.circuitOpen) {      lines.push(
         "",
         `> ⚡ **${strings.circuitBreakerHeading}**`,
         `> - ${strings.circuitBreakerOpen}`,

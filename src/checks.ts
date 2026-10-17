@@ -282,6 +282,13 @@ export interface ValidationResult {
   trustlineAuthorized?: boolean;
   /** Whether the matched trustline has clawback enabled, or undefined if not applicable. */
   clawbackEnabled?: boolean;
+  /**
+   * Effective `unauthorized_trustline_policy` observed for this run
+   * (Issue #729). Renderers (comment, SARIF) use it to pick policy-specific
+   * wording and severity instead of re-deriving the policy from a check
+   * detail string. `warn` is the default when the input is unset.
+   */
+  unauthorizedTrustlinePolicy?: "fail" | "warn" | "ignore";
   xlmBalance: string;
   xlmReserveMet: boolean;
   /** Current balance of the configured asset (or `'0'` / `'unknown'` on error paths). */
@@ -1106,6 +1113,7 @@ export function runAccountChecks(
       trustlineExists,
       trustlineAuthorized,
       clawbackEnabled: trustlineExistsRaw ? clawbackEnabled : undefined,
+      unauthorizedTrustlinePolicy: unauthorizedPolicy,
       xlmBalance,
       xlmReserveMet,
       assetBalance: assetBalanceRaw,
@@ -1117,6 +1125,12 @@ export function runAccountChecks(
       hasClaimableBalances: hasClaimables,
       reasonCode: (() => {
         if (valid) return "SUCCESS";
+        // Issue #729: an unauthorized trustline blocked by
+        // `unauthorized_trustline_policy: fail` is a *policy* failure, not a
+        // missing trustline — the trustline exists on-chain. Reporting
+        // TRUSTLINE_MISSING here sent triage to the wrong remediation step
+        // ("add a trustline") when the real fix is an issuer SetTrustLineFlags.
+        if (authorizationBlocks) return "TRUSTLINE_UNAUTHORIZED";
         if (!trustlineExists) return "TRUSTLINE_MISSING";
         if (!xlmReserveMet) return "RESERVE_TOO_LOW";
         if (config.minTrustlineLimit && !trustlineLimitMet)
