@@ -1256,7 +1256,18 @@ async function run(): Promise<void> {
       ...normalizedAsset,
       minXlmReserve: Number(effectiveMinXlmReserveRaw),
       horizonUrl: effectiveHorizonUrl,
+      // Issue #725: batch mode used to drop the clawback policy entirely, so a
+      // clawback-enabled asset never failed a batch row even with
+      // `clawback_strict_mode: true`.
+      clawbackStrictMode,
     };
+
+    // Issue #725: `assets_json` entries participate in the per-address clawback
+    // strict evaluation, so batch rows can be attributed to a specific
+    // `code:issuer` pair instead of only reporting that "the row failed".
+    const batchExtraAssets = assetsJsonRaw.trim()
+      ? parseAssetsJson(assetsJsonRaw)
+      : [];
 
     const batchResults = await runBatchValidation(
       batchAddresses,
@@ -1269,10 +1280,11 @@ async function run(): Promise<void> {
           retryBaseDelayMs,
           retryMaxDelayMs,
         },
+        extraAssets: batchExtraAssets,
       },
     );
 
-    const batchSummary = buildBatchSummary(batchResults);
+    const batchSummary = buildBatchSummary(batchResults, { clawbackStrictMode });
     const batchMarkdown = formatBatchSummaryMarkdown(
       batchSummary,
       effectiveAssetCode,
@@ -1304,6 +1316,14 @@ async function run(): Promise<void> {
             : String(commentError);
         core.warning(`Failed to post batch comment (non-fatal): ${message}`);
       }
+    }
+
+    // Issue #725: surface strict clawback attribution in the run log, counted
+    // separately from every other batch failure bucket.
+    if (batchSummary.clawbackStrictFailures > 0) {
+      core.warning(
+        `Batch validation: ${batchSummary.clawbackStrictFailures} address(es) blocked by \`clawback_strict_mode: true\` (reason_code: CLAWBACK_STRICT_MODE).`,
+      );
     }
 
     // Set batch-specific outputs

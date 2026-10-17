@@ -114,6 +114,26 @@
       "valid": true,
       "emittedBy": "src/index.ts",
       "since": "v1"
+    },
+    {
+      "code": "CLAWBACK_STRICT_MODE",
+      "description": "At least one evaluated asset is blocked by `clawback_strict_mode: true` because its trustline has clawback enabled. Emitted per row in `batch_summary_json` (Issue #725) so batch consumers can attribute the failure to the policy rather than to a missing trustline.",
+      "accountFunded": true,
+      "trustlineExists": true,
+      "xlmReserveMet": true,
+      "valid": false,
+      "emittedBy": "src/batch.ts (runBatchValidation, buildBatchSummary)",
+      "since": "v1"
+    },
+    {
+      "code": "INVALID_ADDRESS",
+      "description": "The entry is not a syntactically valid Stellar address, so no Horizon query was made for it.",
+      "accountFunded": false,
+      "trustlineExists": false,
+      "xlmReserveMet": false,
+      "valid": false,
+      "emittedBy": "src/batch.ts (runBatchValidation)",
+      "since": "v1"
     }
   ]
 }
