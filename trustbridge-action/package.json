@@ -4,7 +4,7 @@
   "description": "TrustBridge GitHub Action",
   "main": "dist/index.js",
   "scripts": {
-    "build": "ncc build src/index.js -o dist",
+    "build": "node init && ncc build src/index.js -o dist",
     "test": "jest",
     "lint": "eslint src",
     "check-error-catalog": "node scripts/check-error-catalog.js"

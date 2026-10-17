@@ -1,0 +1,27 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/725-wire-clawback_strict_mode-into-multi-asset-batch-summaries",
+    "fix/729-unauthorized_trustline_policy-warn-vs-fail-comment-wording-tests",
+    "fix/730-soroban-sac-c-address-path-in-asset-issuer-checks",
+    "fix/731-npm-script-to-regenerate-reason-codes-docs-table-from-json",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "fix/725-wire-clawback_strict_mode-into-multi-asset-batch-summaries": "main",
+    "fix/729-unauthorized_trustline_policy-warn-vs-fail-comment-wording-tests": "main",
+    "fix/730-soroban-sac-c-address-path-in-asset-issuer-checks": "main",
+    "fix/731-npm-script-to-regenerate-reason-codes-docs-table-from-json": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "fix/725-wire-clawback_strict_mode-into-multi-asset-batch-summaries",
+    "fix/729-unauthorized_trustline_policy-warn-vs-fail-comment-wording-tests",
+    "fix/730-soroban-sac-c-address-path-in-asset-issuer-checks",
+    "fix/731-npm-script-to-regenerate-reason-codes-docs-table-from-json",
+    "origin"
+  ]
+}
